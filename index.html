@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PCR Genotyping Calculator</title>
+    
+    <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@1.*/css/pico.min.css">
+    
+    <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
+    <script defer src="https://pyscript.net/latest/pyscript.js"></script>
+    
+    <style>
+        body { padding: 20px; max-width: 800px; margin: 0 auto; }
+        .result-box { background: #1f2937; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <main class="container">
+        <h1>🧬 PCR Genotyping Calculator</h1>
+        <p>Calculate your Master Mix volumes instantly.</p>
+
+        <div class="grid">
+            <label for="samples">
+                Number of Samples
+                <input type="number" id="samples" name="samples" value="8" min="1">
+            </label>
+
+            <label for="excess">
+                Excess % (Pipetting Safety)
+                <input type="number" id="excess" name="excess" value="10" step="0.5">
+            </label>
+
+            <label for="mix_conc">
+                Mix Concentration
+                <select id="mix_conc">
+                    <option value="2">2X Mix</option>
+                    <option value="5">5X Mix</option>
+                </select>
+            </label>
+        </div>
+
+        <button id="calc-btn" py-click="calculate_pcr">Calculate Recipe</button>
+
+        <hr>
+        <h3>Reaction Plan:</h3>
+        <div id="output" class="result-box">Click Calculate to see results...</div>
+    </main>
+
+    <py-script>
+        from js import document
+
+        # Constants
+        PER_SAMPLE_TOTAL = 11.0
+        PRIMER_PER = 0.5
+
+        def round_to_half(x):
+            return round(x * 2) / 2.0
+
+        def calculate_pcr(*args):
+            # 1. Get values from HTML inputs
+            try:
+                n_samples = int(document.getElementById("samples").value)
+                excess = float(document.getElementById("excess").value)
+                mix_x = int(document.getElementById("mix_conc").value)
+            except:
+                document.getElementById("output").innerText = "Error: Please check your input numbers."
+                return
+
+            # 2. Logic (Copied from your Python script)
+            mix_vol = 6.0 * (2.0 / mix_x)
+            primers_total = 2 * PRIMER_PER
+            ddw_vol = PER_SAMPLE_TOTAL - (mix_vol + primers_total)
+            
+            per_sample = {
+                "DDW": ddw_vol,
+                f"Mix {mix_x}X": mix_vol,
+                "Primer F": PRIMER_PER,
+                "Primer R": PRIMER_PER,
+            }
+
+            # 3. Calculate Totals
+            factor = 1.0 + (excess / 100.0)
+            totals = {k: round_to_half(v * n_samples * factor) for k, v in per_sample.items()}
+            total_master_mix = round_to_half(sum(totals.values()))
+
+            # 4. Generate Output Text
+            lines = []
+            lines.append(f"Samples: {n_samples} | Excess: {excess}% | Mix: {mix_x}X")
+            lines.append("-" * 40)
+            lines.append("PREPARE MASTER MIX:")
+            for k, v in totals.items():
+                lines.append(f"  {k:<12}: {v} µL")
+            lines.append("-" * 40)
+            lines.append(f"TOTAL VOLUME    : {total_master_mix} µL")
+            lines.append("-" * 40)
+            lines.append(f"Add {total_master_mix/n_samples:.1f} µL of MM to each sample.")
+
+            # 5. Display on screen
+            result_text = "\n".join(lines)
+            document.getElementById("output").innerText = result_text
+
+    </py-script>
+</body>
+</html>
