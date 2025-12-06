@@ -92,6 +92,18 @@
             accent-color: var(--primary);
         }
 
+        /* Grand Total Box */
+        .grand-total {
+            background: var(--highlight);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--primary);
+            margin-bottom: 24px;
+        }
+        .grand-total .label { color: var(--primary); font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
+        .grand-total .value { color: var(--primary); font-size: 2.5rem; font-weight: 700; margin-top: 5px; }
+        
         /* Results Table */
         .results-table {
             width: 100%;
@@ -118,18 +130,48 @@
         .results-table tr:last-child td { border-bottom: none; }
         .col-right { text-align: right; }
 
-        /* Grand Total Box */
-        .grand-total {
-            background: var(--highlight);
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            border: 1px solid var(--primary);
+        /* Protocol Dropdown (New) */
+        details {
             margin-bottom: 24px;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            overflow: hidden;
+            background: var(--bg);
         }
-        .grand-total .label { color: var(--primary); font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
-        .grand-total .value { color: var(--primary); font-size: 2.5rem; font-weight: 700; margin-top: 5px; }
+
+        summary {
+            padding: 12px 16px;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--card-bg);
+            list-style: none; /* Hide default triangle */
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.9rem;
+        }
         
+        /* Custom Arrow */
+        summary::after { content: '▼'; font-size: 0.8em; transition: transform 0.2s; }
+        details[open] summary::after { transform: rotate(180deg); }
+        summary::-webkit-details-marker { display: none; }
+
+        .protocol-body {
+            padding: 16px;
+            border-top: 1px solid var(--border);
+            font-size: 0.9rem;
+        }
+
+        .protocol-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 6px 0;
+            border-bottom: 1px dashed var(--border);
+        }
+        .protocol-row:last-child { border-bottom: none; }
+        .step-name { font-weight: 500; }
+        .step-val { font-family: monospace; color: var(--text-muted); }
+
         /* Buttons */
         .actions { display: flex; gap: 10px; }
         .btn {
@@ -198,6 +240,42 @@
                 </tbody>
         </table>
 
+        <details>
+            <summary>Protocol & Cycling Conditions</summary>
+            <div class="protocol-body">
+                <div class="protocol-row">
+                    <span class="step-name">1. Initial Denaturation</span>
+                    <span class="step-val">94°C | 3:00 min</span>
+                </div>
+                <div class="protocol-row">
+                    <span class="step-name">2. Denaturation</span>
+                    <span class="step-val">94°C | 0:30 sec</span>
+                </div>
+                <div class="protocol-row">
+                    <span class="step-name">3. Annealing</span>
+                    <span class="step-val">58°C* | 0:30 sec</span>
+                </div>
+                <div class="protocol-row">
+                    <span class="step-name">4. Extension</span>
+                    <span class="step-val">72°C | 1:00 min</span>
+                </div>
+                <div class="protocol-row" style="justify-content: center; font-size: 0.8rem; color: var(--text-muted); padding: 4px 0;">
+                    <em>(Repeat steps 2-4 for 35 cycles)</em>
+                </div>
+                <div class="protocol-row">
+                    <span class="step-name">5. Final Extension</span>
+                    <span class="step-val">72°C | 5:00 min</span>
+                </div>
+                <div class="protocol-row">
+                    <span class="step-name">6. Hold</span>
+                    <span class="step-val">4-10°C | ∞</span>
+                </div>
+                <div style="margin-top:10px; font-size: 0.75rem; color: var(--text-muted);">
+                    *Adjust annealing temp based on primer Tm.
+                </div>
+            </div>
+        </details>
+
         <div class="actions">
             <button class="btn btn-outline" onclick="saveText()">Save .txt</button>
             <button class="btn btn-primary" onclick="copyToClipboard()">Copy to Clipboard</button>
@@ -255,7 +333,6 @@
         const factor = 1.0 + (excess / 100.0);
         let grandTotal = 0;
         let htmlRows = "";
-        let reportText = "";
 
         ingredients.forEach(ing => {
             const total = roundHalf(ing.perSample * samples * factor);
