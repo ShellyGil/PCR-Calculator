@@ -3,103 +3,333 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PCR Genotyping Calculator</title>
-    
-    <link rel="stylesheet" href="https://unpkg.com/@picocss/pico@1.*/css/pico.min.css">
-    
-    <link rel="stylesheet" href="https://pyscript.net/latest/pyscript.css" />
-    <script defer src="https://pyscript.net/latest/pyscript.js"></script>
-    
+    <title>PCR Master Mix Calculator</title>
     <style>
-        body { padding: 20px; max-width: 800px; margin: 0 auto; }
-        .result-box { background: #1f2937; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; white-space: pre-wrap; }
+        :root {
+            --primary: #2563eb;
+            --primary-hover: #1d4ed8;
+            --bg: #f8fafc;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --highlight: #eff6ff;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
+
+        /* Dark Mode Variables */
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg: #0f172a;
+                --card-bg: #1e293b;
+                --text-main: #f1f5f9;
+                --text-muted: #94a3b8;
+                --border: #334155;
+                --highlight: #1e3a8a;
+            }
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            background-color: var(--bg);
+            color: var(--text-main);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            padding: 20px;
+            transition: background 0.3s;
+        }
+
+        .container {
+            background: var(--card-bg);
+            width: 100%;
+            max_width: 600px;
+            border-radius: 16px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+            border: 1px solid var(--border);
+        }
+
+        header {
+            background: var(--primary);
+            color: white;
+            padding: 20px 24px;
+            text-align: center;
+        }
+        header h1 { font-size: 1.25rem; font-weight: 600; }
+        header p { font-size: 0.875rem; opacity: 0.9; margin-top: 4px; }
+
+        .content { padding: 24px; }
+
+        /* Controls Grid */
+        .controls {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .control-group { display: flex; flex-direction: column; gap: 8px; }
+        .control-group.full { grid-column: span 2; }
+        
+        label { font-size: 0.875rem; font-weight: 500; color: var(--text-muted); }
+        
+        input[type="number"], select {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text-main);
+            font-size: 1rem;
+            width: 100%;
+        }
+
+        input[type="range"] {
+            width: 100%;
+            margin-top: 8px;
+            accent-color: var(--primary);
+        }
+
+        /* Results Table */
+        .results-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 24px;
+        }
+        
+        .results-table th {
+            text-align: left;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            color: var(--text-muted);
+            padding-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+        }
+        
+        .results-table td {
+            padding: 12px 0;
+            border-bottom: 1px solid var(--border);
+            font-variant-numeric: tabular-nums;
+        }
+        
+        .results-table tr:last-child td { border-bottom: none; }
+        .col-right { text-align: right; }
+
+        /* Grand Total Box */
+        .grand-total {
+            background: var(--highlight);
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid var(--primary);
+            margin-bottom: 24px;
+        }
+        .grand-total .label { color: var(--primary); font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
+        .grand-total .value { color: var(--primary); font-size: 2.5rem; font-weight: 700; margin-top: 5px; }
+        
+        /* Buttons */
+        .actions { display: flex; gap: 10px; }
+        .btn {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            font-size: 0.9rem;
+        }
+        .btn-primary { background: var(--primary); color: white; }
+        .btn-primary:hover { background: var(--primary-hover); }
+        .btn-outline { background: transparent; border: 1px solid var(--border); color: var(--text-main); }
+        .btn-outline:hover { background: var(--bg); }
+
     </style>
 </head>
 <body>
-    <main class="container">
-        <h1>🧬 PCR Genotyping Calculator</h1>
-        <p>Calculate your Master Mix volumes instantly.</p>
 
-        <div class="grid">
-            <label for="samples">
-                Number of Samples
-                <input type="number" id="samples" name="samples" value="8" min="1">
-            </label>
+<div class="container">
+    <header>
+        <h1>PCR Genotyping Calculator</h1>
+        <p>Master Mix Preparation Tool</p>
+    </header>
 
-            <label for="excess">
-                Excess % (Pipetting Safety)
-                <input type="number" id="excess" name="excess" value="10" step="0.5">
-            </label>
+    <div class="content">
+        <div class="controls">
+            <div class="control-group full">
+                <label for="samples">Number of Samples: <span id="sample-display" style="font-weight:bold; color:var(--primary)">8</span></label>
+                <div style="display:flex; gap:10px; align-items:center;">
+                    <input type="range" id="sample-slider" min="1" max="96" value="8">
+                    <input type="number" id="sample-input" value="8" min="1" max="999" style="width: 80px;">
+                </div>
+            </div>
 
-            <label for="mix_conc">
-                Mix Concentration
-                <select id="mix_conc">
+            <div class="control-group">
+                <label for="excess">Excess Volume (%)</label>
+                <input type="number" id="excess" value="10" step="0.5" min="0">
+            </div>
+
+            <div class="control-group">
+                <label for="mix">Mix Concentration</label>
+                <select id="mix">
                     <option value="2">2X Mix</option>
                     <option value="5">5X Mix</option>
                 </select>
-            </label>
+            </div>
         </div>
 
-        <button id="calc-btn" py-click="calculate_pcr">Calculate Recipe</button>
+        <div class="grand-total">
+            <div class="label">Total Master Mix to Prepare</div>
+            <div class="value" id="grand-total-display">0 µL</div>
+        </div>
 
-        <hr>
-        <h3>Reaction Plan:</h3>
-        <div id="output" class="result-box">Click Calculate to see results...</div>
-    </main>
+        <table class="results-table">
+            <thead>
+                <tr>
+                    <th>Ingredient</th>
+                    <th class="col-right">Per Sample</th>
+                    <th class="col-right">Master Mix</th>
+                </tr>
+            </thead>
+            <tbody id="table-body">
+                </tbody>
+        </table>
 
-    <py-script>
-        from js import document
+        <div class="actions">
+            <button class="btn btn-outline" onclick="saveText()">Save .txt</button>
+            <button class="btn btn-primary" onclick="copyToClipboard()">Copy to Clipboard</button>
+        </div>
+    </div>
+</div>
 
-        # Constants
-        PER_SAMPLE_TOTAL = 11.0
-        PRIMER_PER = 0.5
+<script>
+    // --- Constants ---
+    const PER_SAMPLE_TOTAL = 11.0;
+    const PRIMER_VOL = 0.5;
 
-        def round_to_half(x):
-            return round(x * 2) / 2.0
+    // --- DOM Elements ---
+    const sampleSlider = document.getElementById('sample-slider');
+    const sampleInput = document.getElementById('sample-input');
+    const sampleDisplay = document.getElementById('sample-display');
+    const excessInput = document.getElementById('excess');
+    const mixInput = document.getElementById('mix');
+    const tableBody = document.getElementById('table-body');
+    const grandTotalDisplay = document.getElementById('grand-total-display');
 
-        def calculate_pcr(*args):
-            # 1. Get values from HTML inputs
-            try:
-                n_samples = int(document.getElementById("samples").value)
-                excess = float(document.getElementById("excess").value)
-                mix_x = int(document.getElementById("mix_conc").value)
-            except:
-                document.getElementById("output").innerText = "Error: Please check your input numbers."
-                return
+    // --- Math Helper ---
+    function roundHalf(num) {
+        return Math.round(num * 2) / 2.0;
+    }
 
-            # 2. Logic (Copied from your Python script)
-            mix_vol = 6.0 * (2.0 / mix_x)
-            primers_total = 2 * PRIMER_PER
-            ddw_vol = PER_SAMPLE_TOTAL - (mix_vol + primers_total)
+    // --- Core Logic ---
+    function calculate() {
+        const samples = parseInt(sampleInput.value) || 0;
+        const excess = parseFloat(excessInput.value) || 0;
+        const mixX = parseInt(mixInput.value);
+
+        // Sync slider and number box
+        sampleDisplay.innerText = samples;
+        
+        if (samples < 1) {
+            grandTotalDisplay.innerText = "Error";
+            return;
+        }
+
+        // 1. Calculate Per Sample (Target 11uL total)
+        // Equivalent of 6uL of 2X mix
+        const mixVol = 6.0 * (2.0 / mixX); 
+        const primerTotal = 2 * PRIMER_VOL;
+        const ddwVol = PER_SAMPLE_TOTAL - (mixVol + primerTotal);
+
+        const ingredients = [
+            { name: "DDW", perSample: ddwVol },
+            { name: `Mix (${mixX}X)`, perSample: mixVol },
+            { name: "Primer Fwd", perSample: PRIMER_VOL },
+            { name: "Primer Rev", perSample: PRIMER_VOL }
+        ];
+
+        // 2. Calculate Totals
+        const factor = 1.0 + (excess / 100.0);
+        let grandTotal = 0;
+        let htmlRows = "";
+        let reportText = "";
+
+        ingredients.forEach(ing => {
+            const total = roundHalf(ing.perSample * samples * factor);
+            grandTotal += total;
             
-            per_sample = {
-                "DDW": ddw_vol,
-                f"Mix {mix_x}X": mix_vol,
-                "Primer F": PRIMER_PER,
-                "Primer R": PRIMER_PER,
-            }
+            htmlRows += `
+                <tr>
+                    <td>${ing.name}</td>
+                    <td class="col-right">${ing.perSample.toFixed(1)} µL</td>
+                    <td class="col-right" style="font-weight:bold">${total.toFixed(1)} µL</td>
+                </tr>
+            `;
+        });
 
-            # 3. Calculate Totals
-            factor = 1.0 + (excess / 100.0)
-            totals = {k: round_to_half(v * n_samples * factor) for k, v in per_sample.items()}
-            total_master_mix = round_to_half(sum(totals.values()))
+        tableBody.innerHTML = htmlRows;
+        grandTotalDisplay.innerText = grandTotal.toFixed(1) + " µL";
+        
+        return { samples, excess, mixX, grandTotal, ingredients, factor };
+    }
 
-            # 4. Generate Output Text
-            lines = []
-            lines.append(f"Samples: {n_samples} | Excess: {excess}% | Mix: {mix_x}X")
-            lines.append("-" * 40)
-            lines.append("PREPARE MASTER MIX:")
-            for k, v in totals.items():
-                lines.append(f"  {k:<12}: {v} µL")
-            lines.append("-" * 40)
-            lines.append(f"TOTAL VOLUME    : {total_master_mix} µL")
-            lines.append("-" * 40)
-            lines.append(f"Add {total_master_mix/n_samples:.1f} µL of MM to each sample.")
+    // --- Event Listeners ---
+    sampleSlider.addEventListener('input', (e) => {
+        sampleInput.value = e.target.value;
+        calculate();
+    });
 
-            # 5. Display on screen
-            result_text = "\n".join(lines)
-            document.getElementById("output").innerText = result_text
+    sampleInput.addEventListener('input', (e) => {
+        sampleSlider.value = e.target.value;
+        calculate();
+    });
 
-    </py-script>
+    excessInput.addEventListener('input', calculate);
+    mixInput.addEventListener('change', calculate);
+
+    // --- Actions ---
+    function getReportText() {
+        const data = calculate();
+        let text = `PCR Report | Samples: ${data.samples} | Excess: ${data.excess}% | Mix: ${data.mixX}X\n`;
+        text += "==================================================\n";
+        text += "INGREDIENT           | PER SAMPLE | MASTER MIX\n";
+        text += "--------------------------------------------------\n";
+        
+        data.ingredients.forEach(ing => {
+            const total = roundHalf(ing.perSample * data.samples * data.factor);
+            text += `${ing.name.padEnd(20)} | ${ing.perSample.toFixed(1).padStart(7)} µL | ${total.toFixed(1).padStart(7)} µL\n`;
+        });
+        
+        text += "--------------------------------------------------\n";
+        text += `TOTAL MASTER MIX     |            | ${data.grandTotal.toFixed(1).padStart(7)} µL\n`;
+        return text;
+    }
+
+    function copyToClipboard() {
+        const text = getReportText();
+        navigator.clipboard.writeText(text).then(() => {
+            const btn = document.querySelector('.btn-primary');
+            const original = btn.innerText;
+            btn.innerText = "Copied!";
+            setTimeout(() => btn.innerText = original, 1500);
+        });
+    }
+
+    function saveText() {
+        const text = getReportText();
+        const blob = new Blob([text], { type: "text/plain" });
+        const anchor = document.createElement("a");
+        anchor.href = URL.createObjectURL(blob);
+        anchor.download = "PCR_Report.txt";
+        anchor.click();
+    }
+
+    // Initial run
+    calculate();
+
+</script>
 </body>
 </html>

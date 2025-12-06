@@ -1,233 +1,293 @@
 #!/usr/bin/env python3
-# PCR genotyping calculator for DDW, Mix (2X/5X), and primers by sample count.
 import argparse
 import sys
-import os
+import tkinter as tk
+from tkinter import ttk, messagebox, filedialog
 
-PER_SAMPLE_TOTAL = 11.0  # total reaction volume per sample (µL)
-PRIMER_PER = 0.5         # each primer per sample (µL)
-DEFAULT_EXCESS = 10.0    # default excess (%)
+# --- Configuration Constants ---
+PER_SAMPLE_TOTAL = 11.0  # Total reaction volume per sample (µL)
+PRIMER_PER = 0.5         # Volume of each primer per sample (µL)
+DEFAULT_EXCESS = 10.0    # Default excess percentage
+DEFAULT_SAMPLES = 8
 
-def round_to_half(x: float) -> float:
-    return round(x * 2) / 2.0
-
-def per_sample_volumes(mix_x: int):
-    """
-    Compute per-sample volumes that preserve the same final composition
-    as 6 µL of 2X mix in an 11 µL reaction.
-    """
-    if mix_x not in (2, 5):
-        raise ValueError("mix_x must be 2 or 5")
-    mix_vol = 6.0 * (2.0 / mix_x)         # µL per sample for chosen X
-    primers_total = 2 * PRIMER_PER        # 1.0 µL
-    ddw_vol = PER_SAMPLE_TOTAL - (mix_vol + primers_total)
-    if ddw_vol < 0:
-        raise ValueError("Computed DDW volume is negative; check inputs.")
+class PCRLogic:
+    """Handles the core math for the PCR calculations."""
     
-    return {
-        "DDW (µL)": ddw_vol,
-        f"Mix {mix_x}X (µL)": mix_vol,
-        "Primer F (µL)": PRIMER_PER,
-        "Primer R (µL)": PRIMER_PER,
-    }
+    @staticmethod
+    def round_to_half(x: float) -> float:
+        """Rounds a float to the nearest 0.5."""
+        return round(x * 2) / 2.0
 
-def compute_totals(n_samples: int, excess_percent: float, mix_x: int):
-    per = per_sample_volumes(mix_x)
-    factor = 1.0 + (excess_percent / 100.0)
-    totals = {k: round_to_half(v * n_samples * factor) for k, v in per.items()}
-    total_master_mix = round_to_half(sum(totals.values()))
-    return per, totals, total_master_mix
+    @staticmethod
+    def calculate(n_samples: int, excess_percent: float, mix_x: int):
+        """
+        Returns a tuple: (per_sample_dict, total_mix_dict, grand_total_vol)
+        """
+        if mix_x not in (2, 5):
+            raise ValueError("Mix concentration must be 2 or 5.")
+        
+        # 1. Calculate Per Sample (Fixed logic based on 11uL total)
+        # Target: Equivalent of 6uL of 2X mix in an 11uL reaction
+        mix_vol = 6.0 * (2.0 / mix_x)
+        primers_total = 2 * PRIMER_PER
+        ddw_vol = PER_SAMPLE_TOTAL - (mix_vol + primers_total)
+        
+        if ddw_vol < 0:
+            raise ValueError("Computed DDW volume is negative.")
 
-def as_table(n_samples, excess, mix_x, per, totals, total_master_mix):
-    lines = []
-    lines.append(f"Samples: {n_samples} | Excess: {excess:.1f}% | Mix: {mix_x}X")
-    lines.append(f"Per-sample total volume: {PER_SAMPLE_TOTAL:.1f} µL")
-    lines.append("-" * 46)
-    lines.append("Per-sample recipe:")
-    for k, v in per.items():
-        lines.append(f"  {k:<16} = {v:.1f} µL")
-    lines.append("-" * 46)
-    lines.append("Totals to prepare (rounded to 0.5 µL):")
-    for k in per.keys():
-        lines.append(f"  {k:<16} = {totals[k]:.1f} µL")
-    lines.append("-" * 46)
-    lines.append(f"TOTAL master mix        = {total_master_mix:.1f} µL")
-    return "\n".join(lines)
+        per_sample = {
+            "DDW": ddw_vol,
+            f"Mix ({mix_x}X)": mix_vol,
+            "Primer Fwd": PRIMER_PER,
+            "Primer Rev": PRIMER_PER,
+        }
 
-def save_to_file(content, filename):
-    """Writes the calculation result to a file."""
-    try:
-        with open(filename, 'w') as f:
-            f.write(content)
-        return True
-    except IOError as e:
-        print(f"Error writing to file: {e}", file=sys.stderr)
-        return False
+        # 2. Calculate Totals (Master Mix)
+        factor = 1.0 + (excess_percent / 100.0)
+        # We calculate the exact required, then round the final ingredient amount
+        totals = {k: PCRLogic.round_to_half(v * n_samples * factor) for k, v in per_sample.items()}
+        
+        grand_total = sum(totals.values())
+        
+        return per_sample, totals, grand_total
 
-def try_int_positive(x, name="value"):
-    try:
-        xv = int(x)
-        if xv < 1:
-            raise ValueError
-        return xv
-    except Exception:
-        print(f"Error: {name} must be a positive integer.", file=sys.stderr)
-        sys.exit(2)
+    @staticmethod
+    def format_text_report(n, exc, mx, per, tot, grand):
+        lines = [
+            f"PCR Report | Samples: {n} | Excess: {exc}% | Mix: {mx}X",
+            "=" * 50,
+            f"{'INGREDIENT':<20} | {'PER SAMPLE':>10} | {'MASTER MIX':>12}",
+            "-" * 50
+        ]
+        for k, v in per.items():
+            lines.append(f"{k:<20} | {v:>7.1f} µL | {tot[k]:>9.1f} µL")
+        lines.append("-" * 50)
+        lines.append(f"{'TOTAL VOLUME':<20} | {PER_SAMPLE_TOTAL:>7.1f} µL | {grand:>9.1f} µL")
+        return "\n".join(lines)
 
-def try_nonneg_float(x, name="value"):
-    try:
-        xv = float(x)
-        if xv < 0:
-            raise ValueError
-        return xv
-    except Exception:
-        print(f"Error: {name} must be a non-negative number.", file=sys.stderr)
-        sys.exit(2)
 
-def run_cli(samples: int, excess: float, mix_x: int, save_path: str = None):
-    per, totals, total_master_mix = compute_totals(samples, excess, mix_x)
-    result_text = as_table(samples, excess, mix_x, per, totals, total_master_mix)
-    print(result_text)
+class PCRGui:
+    """Modern Tkinter GUI for the calculator."""
     
-    if save_path:
-        if save_to_file(result_text, save_path):
-            print(f"\n[+] Report saved to {save_path}")
+    def __init__(self, root, default_samples, default_excess, default_mix, save_path=None):
+        self.root = root
+        self.root.title("PCR Master Mix Calculator")
+        self.root.geometry("600x550")
+        self.root.minsize(500, 500)
+        
+        # State Variables
+        self.var_samples = tk.IntVar(value=default_samples)
+        self.var_excess = tk.DoubleVar(value=default_excess)
+        self.var_mix = tk.StringVar(value=f"{default_mix}X")
+        self.save_path = save_path
 
-def interactive_prompt(excess_default: float, mix_default: int):
-    raw = input("Enter number of PCR samples: ").strip()
-    n = try_int_positive(raw, "samples")
-    raw_ex = input(f"Excess % (ENTER for {excess_default}%): ").strip()
-    ex = excess_default if raw_ex == "" else try_nonneg_float(raw_ex, "excess")
-    raw_mx = input(f"Mix concentration (2 or 5) [ENTER for {mix_default}]: ").strip()
-    mx = mix_default if raw_mx == "" else try_int_positive(raw_mx, "mix")
-    
-    run_cli(n, ex, mx)
+        # Triggers for real-time updates
+        self.var_samples.trace_add("write", self.update_calc)
+        self.var_excess.trace_add("write", self.update_calc)
+        self.var_mix.trace_add("write", self.update_calc)
+
+        self._setup_styles()
+        self._build_layout()
+        self.update_calc() # Initial run
+
+    def _setup_styles(self):
+        style = ttk.Style()
+        style.theme_use('clam') # Usually cleaner than default
+        
+        # Customizing fonts and colors
+        style.configure("TLabel", font=("Segoe UI", 10))
+        style.configure("Header.TLabel", font=("Segoe UI", 11, "bold"), foreground="#333")
+        style.configure("BigResult.TLabel", font=("Segoe UI", 16, "bold"), foreground="#0055aa")
+        style.configure("Error.TLabel", foreground="red")
+        style.configure("Card.TFrame", background="#f0f0f0", relief="groove")
+
+    def _build_layout(self):
+        # Main container with padding
+        main_frame = ttk.Frame(self.root, padding=20)
+        main_frame.pack(fill="both", expand=True)
+
+        # --- Section 1: Inputs ---
+        input_frame = ttk.LabelFrame(main_frame, text="Configuration", padding=15)
+        input_frame.pack(fill="x", pady=(0, 20))
+
+        # Samples Row
+        ttk.Label(input_frame, text="Samples:").grid(row=0, column=0, sticky="w")
+        self.spin_samples = ttk.Spinbox(input_frame, from_=1, to=999, textvariable=self.var_samples, width=6)
+        self.spin_samples.grid(row=0, column=1, padx=10, sticky="w")
+        
+        # Slider for samples (Quick adjust)
+        self.scale_samples = ttk.Scale(input_frame, from_=1, to=96, variable=self.var_samples, orient="horizontal")
+        self.scale_samples.grid(row=0, column=2, sticky="ew", padx=10)
+        input_frame.columnconfigure(2, weight=1)
+
+        # Excess Row
+        ttk.Label(input_frame, text="Excess (%):").grid(row=1, column=0, sticky="w", pady=10)
+        ttk.Spinbox(input_frame, from_=0, to=50, increment=0.5, textvariable=self.var_excess, width=6).grid(row=1, column=1, padx=10, sticky="w", pady=10)
+
+        # Mix Row
+        ttk.Label(input_frame, text="Mix Type:").grid(row=2, column=0, sticky="w")
+        ttk.Combobox(input_frame, values=["2X", "5X"], textvariable=self.var_mix, state="readonly", width=5).grid(row=2, column=1, padx=10, sticky="w")
+
+        # --- Section 2: Results Display ---
+        # We use a Treeview for a clean table look instead of raw text
+        self.tree_frame = ttk.Frame(main_frame)
+        self.tree_frame.pack(fill="both", expand=True)
+        
+        cols = ("Ingredient", "Per Sample (µL)", "Master Mix (µL)")
+        self.tree = ttk.Treeview(self.tree_frame, columns=cols, show="headings", height=6)
+        
+        for col in cols:
+            self.tree.heading(col, text=col)
+            self.tree.column(col, anchor="center", width=120)
+        
+        self.tree.pack(fill="both", expand=True)
+
+        # --- Section 3: Grand Total Highlight ---
+        total_frame = ttk.Frame(main_frame, padding=(0, 20, 0, 10))
+        total_frame.pack(fill="x")
+        
+        ttk.Label(total_frame, text="Total Master Mix Volume:", style="Header.TLabel").pack(anchor="center")
+        self.lbl_grand_total = ttk.Label(total_frame, text="---", style="BigResult.TLabel")
+        self.lbl_grand_total.pack(anchor="center")
+        
+        self.lbl_status = ttk.Label(main_frame, text="", style="Error.TLabel")
+        self.lbl_status.pack(anchor="w")
+
+        # --- Section 4: Action Buttons ---
+        btn_frame = ttk.Frame(main_frame)
+        btn_frame.pack(fill="x", pady=10)
+        
+        ttk.Button(btn_frame, text="Copy to Clipboard", command=self.copy_to_clipboard).pack(side="left", fill="x", expand=True, padx=(0, 5))
+        ttk.Button(btn_frame, text="Save Report", command=self.save_report).pack(side="left", fill="x", expand=True, padx=(5, 0))
+
+    def get_inputs(self):
+        try:
+            n = self.var_samples.get()
+            e = self.var_excess.get()
+            m_str = self.var_mix.get().replace("X", "")
+            m = int(m_str)
+            if n < 1: raise ValueError("Samples < 1")
+            if e < 0: raise ValueError("Excess < 0")
+            return n, e, m
+        except Exception:
+            return None
+
+    def update_calc(self, *args):
+        inputs = self.get_inputs()
+        
+        # Clear previous results
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+            
+        if not inputs:
+            self.lbl_grand_total.config(text="Invalid Input", foreground="red")
+            self.lbl_status.config(text="Please check your input values.")
+            return
+
+        n, exc, mx = inputs
+        try:
+            per, tot, grand = PCRLogic.calculate(n, exc, mx)
+            
+            # Populate Table
+            for k in per.keys():
+                # Highlight rows differently if needed, or just insert
+                self.tree.insert("", "end", values=(k, f"{per[k]:.1f}", f"{tot[k]:.1f}"))
+            
+            # Update Grand Total
+            self.lbl_grand_total.config(text=f"{grand:.1f} µL", foreground="#0055aa")
+            self.lbl_status.config(text="") # Clear errors
+            
+            # Store current results for export
+            self.current_report = PCRLogic.format_text_report(n, exc, mx, per, tot, grand)
+            
+        except ValueError as e:
+            self.lbl_status.config(text=str(e))
+
+    def copy_to_clipboard(self):
+        if hasattr(self, 'current_report'):
+            self.root.clipboard_clear()
+            self.root.clipboard_append(self.current_report)
+            messagebox.showinfo("Copied", "Report copied to clipboard!")
+
+    def save_report(self):
+        if not hasattr(self, 'current_report'): return
+        
+        path = self.save_path
+        if not path:
+            path = filedialog.asksaveasfilename(
+                defaultextension=".txt",
+                filetypes=[("Text Files", "*.txt")],
+                title="Save PCR Report"
+            )
+        
+        if path:
+            try:
+                with open(path, "w") as f:
+                    f.write(self.current_report)
+                messagebox.showinfo("Saved", f"Saved to {path}")
+            except Exception as e:
+                messagebox.showerror("Error", f"Could not save file:\n{e}")
+
+def run_cli_mode(args):
+    """Runs the non-GUI version."""
+    try:
+        if args.samples is None:
+            # Simple interactive mode for CLI
+            print("--- PCR Calculator (CLI) ---")
+            s_in = input("Number of samples: ")
+            e_in = input(f"Excess % [{DEFAULT_EXCESS}]: ")
+            m_in = input(f"Mix (2 or 5) [2]: ")
+            
+            n = int(s_in) if s_in else DEFAULT_SAMPLES
+            exc = float(e_in) if e_in else DEFAULT_EXCESS
+            mx = int(m_in) if m_in else 2
+        else:
+            n = args.samples
+            exc = args.excess
+            mx = args.mix
+            
+        per, tot, grand = PCRLogic.calculate(n, exc, mx)
+        report = PCRLogic.format_text_report(n, exc, mx, per, tot, grand)
+        print("\n" + report + "\n")
+        
+        if args.save:
+            with open(args.save, 'w') as f:
+                f.write(report)
+            print(f"[+] Saved to {args.save}")
+            
+    except Exception as e:
+        print(f"Error: {e}")
+        sys.exit(1)
 
 def main():
-    parser = argparse.ArgumentParser(
-        description="PCR genotyping calculator for DDW, Mix (2X/5X), and primers by sample count."
-    )
-    parser.add_argument("--samples", "-n", type=int, help="Number of PCR samples.")
-    parser.add_argument("--excess", "-e", type=float, default=DEFAULT_EXCESS,
-                        help=f"Excess %% for pipetting loss (default {DEFAULT_EXCESS}).")
-    parser.add_argument("--mix", "-m", type=int, choices=[2, 5], default=2,
-                        help="Mix concentration (2 or 5). Default 2.")
-    parser.add_argument("--save", "-s", type=str, help="Path to save the output text file.")
-    parser.add_argument("--no-gui", action="store_true",
-                        help="Run in terminal (no GUI). If --samples not given, you’ll be prompted.")
+    parser = argparse.ArgumentParser(description="PCR Genotyping Master Mix Calculator")
+    parser.add_argument("-n", "--samples", type=int, help="Number of samples")
+    parser.add_argument("-e", "--excess", type=float, default=DEFAULT_EXCESS, help="Excess percentage")
+    parser.add_argument("-m", "--mix", type=int, choices=[2, 5], default=2, help="Mix concentration (2X or 5X)")
+    parser.add_argument("-s", "--save", type=str, help="Auto-save report to file")
+    parser.add_argument("--no-gui", action="store_true", help="Force command line interface")
+    
     args = parser.parse_args()
 
-    # Terminal mode
-    if args.no_gui:
-        if args.samples is not None:
-            run_cli(try_int_positive(args.samples, "samples"),
-                    try_nonneg_float(args.excess, "excess"),
-                    args.mix,
-                    args.save)
-        else:
-            interactive_prompt(excess_default=max(args.excess, 0.0), mix_default=args.mix)
-        return
-
-    # GUI mode
+    # Determine mode
+    gui_available = True
     try:
-        import tkinter as tk
-        from tkinter import ttk, messagebox, filedialog
-    except Exception:
-        # Fallback to CLI if tkinter unavailable
-        if args.samples is not None:
-            run_cli(try_int_positive(args.samples, "samples"),
-                    try_nonneg_float(args.excess, "excess"),
-                    args.mix,
-                    args.save)
-        else:
-            interactive_prompt(excess_default=max(args.excess, 0.0), mix_default=args.mix)
-        return
+        import tkinter
+    except ImportError:
+        gui_available = False
 
-    root = tk.Tk()
-    root.title("PCR Genotyping Calculator")
-
-    frm = ttk.Frame(root, padding=12)
-    frm.grid(row=0, column=0, sticky="nsew")
-    root.columnconfigure(0, weight=1)
-    root.rowconfigure(0, weight=1)
-
-    # Samples input (Spinbox + Slider)
-    ttk.Label(frm, text="Number of samples:").grid(row=0, column=0, sticky="w")
-    samples_var = tk.IntVar(value=args.samples if args.samples and args.samples > 0 else 8)
-    spn = ttk.Spinbox(frm, from_=1, to=999, textvariable=samples_var, width=8)
-    spn.grid(row=0, column=1, sticky="w", padx=(8, 0))
-    sld = ttk.Scale(frm, from_=1, to=96, orient="horizontal",
-                    command=lambda v: samples_var.set(int(float(v))))
-    sld.set(samples_var.get())
-    sld.grid(row=0, column=2, sticky="ew", padx=(10, 0))
-    frm.columnconfigure(2, weight=1)
-
-    # Excess % (Spinbox, default visible; 0.5% steps)
-    ttk.Label(frm, text="Excess (%):").grid(row=1, column=0, sticky="w", pady=(6, 0))
-    excess_var = tk.DoubleVar(value=max(args.excess, 0.0))
-    ex_spn = ttk.Spinbox(frm, from_=0.0, to=100.0, increment=0.5, width=8, textvariable=excess_var)
-    ex_spn.grid(row=1, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-
-    # Mix concentration (2X / 5X)
-    ttk.Label(frm, text="Mix concentration:").grid(row=2, column=0, sticky="w", pady=(6, 0))
-    mix_var = tk.StringVar(value=f"{args.mix}X")
-    mix_cmb = ttk.Combobox(frm, textvariable=mix_var, state="readonly", width=6,
-                           values=["2X", "5X"])
-    mix_cmb.grid(row=2, column=1, sticky="w", padx=(8, 0), pady=(6, 0))
-
-    # Results display
-    txt = tk.Text(frm, height=12, width=52, wrap="word")
-    txt.grid(row=4, column=0, columnspan=3, sticky="nsew", pady=(10, 0))
-    frm.rowconfigure(4, weight=1)
-
-    # Buttons
-    btns = ttk.Frame(frm)
-    btns.grid(row=5, column=0, columnspan=3, sticky="e", pady=(8, 0))
-
-    def compute_and_show():
-        try:
-            n = int(samples_var.get())
-            if n < 1: raise ValueError
-            ex = float(excess_var.get())
-            if ex < 0: raise ValueError
-            mix_label = mix_var.get().strip().upper()
-            mx = 2 if mix_label.startswith("2") else 5
-        except Exception:
-            messagebox.showerror("Invalid input", "Check samples (≥1), excess (≥0), and mix (2X/5X).")
-            return
-
-        per, totals, total_mm = compute_totals(n, ex, mx)
-        txt.delete("1.0", "end")
-        txt.insert("1.0", as_table(n, ex, mx, per, totals, total_mm))
-
-    def copy_clipboard():
-        root.clipboard_clear()
-        root.clipboard_append(txt.get("1.0", "end").strip())
-        messagebox.showinfo("Copied", "Results copied to clipboard.")
-
-    def save_report_gui():
-        content = txt.get("1.0", "end").strip()
-        if not content:
-            messagebox.showwarning("Empty", "Calculate results first.")
-            return
+    if args.no_gui or not gui_available:
+        run_cli_mode(args)
+    else:
+        # Start GUI
+        root = tk.Tk()
+        # If arguments were passed via CLI, use them as defaults in GUI
+        d_n = args.samples if args.samples else DEFAULT_SAMPLES
+        d_e = args.excess
+        d_m = args.mix
         
-        file_path = filedialog.asksaveasfilename(
-            defaultextension=".txt",
-            filetypes=[("Text Files", "*.txt"), ("All Files", "*.*")],
-            title="Save PCR Report"
-        )
-        if file_path:
-            if save_to_file(content, file_path):
-                messagebox.showinfo("Saved", f"Report saved to:\n{file_path}")
-
-    ttk.Button(btns, text="Calculate", command=compute_and_show).grid(row=0, column=0, padx=4)
-    ttk.Button(btns, text="Copy", command=copy_clipboard).grid(row=0, column=1, padx=4)
-    ttk.Button(btns, text="Save Report", command=save_report_gui).grid(row=0, column=2, padx=4)
-    ttk.Button(btns, text="Quit", command=root.destroy).grid(row=0, column=3, padx=4)
-
-    # Prefill
-    compute_and_show()
-    root.mainloop()
+        app = PCRGui(root, d_n, d_e, d_m, save_path=args.save)
+        root.mainloop()
 
 if __name__ == "__main__":
     main()
